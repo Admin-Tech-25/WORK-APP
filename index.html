@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TradeApp AU - Field Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans">
+
+  <header class="bg-slate-900 text-white shadow-lg">
+    <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+      <h1 class="text-xl font-bold tracking-wide text-amber-400">⚡ TradeApp AU</h1>
+      <span class="text-xs bg-slate-800 px-3 py-1 rounded-full border border-slate-700">Sydney Cloud Sync</span>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    
+    <section class="bg-white rounded-xl shadow-md p-6 border-l-8 border-slate-400 transition-all" id="clock-card">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 class="text-lg font-bold uppercase tracking-wider text-slate-700" id="status-text">STATUS: OFF DUTY</h2>
+          <p class="text-sm text-slate-500 mt-1">Tap below to record your shift start and finish times.</p>
+        </div>
+        <button onclick="toggleClock()" id="clock-btn" 
+          class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-lg shadow transition duration-200 flex items-center justify-center gap-2 text-lg">
+          <span id="btn-icon">▶</span> <span id="btn-text">CLOCK ON</span>
+        </button>
+      </div>
+    </section>
+
+    <section>
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold text-slate-800">📋 Today's Job Sheets</h2>
+        <button onclick="loadJobs()" class="text-sm text-amber-600 font-semibold hover:underline">Refresh Feed</button>
+      </div>
+      
+      <div id="jobs-list" class="space-y-4">
+        <div class="text-center py-8 text-slate-400 font-medium">Loading job sheets from Sydney cloud...</div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // 1. PASTE YOUR SUPABASE KEYS HERE:
+    const SUPABASE_URL = 'https://your-project-id.supabase.co';
+    const SUPABASE_ANON_KEY = 'your-anon-public-key-here';
+    
+    // Initialize Supabase Client
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let isClockedIn = false;
+    let activeTimesheetId = null;
+    
+    // Note: Replace these dummy IDs with your logged-in Auth User ID and Company ID
+    const dummyUserId = '00000000-0000-0000-0000-000000000000';
+    const dummyCompanyId = '00000000-0000-0000-0000-000000000000';
+
+    // 2. Clock On / Off Functionality
+    async function toggleClock() {
+      const statusText = document.getElementById('status-text');
+      const clockBtn = document.getElementById('clock-btn');
+      const btnText = document.getElementById('btn-text');
+      const btnIcon = document.getElementById('btn-icon');
+      const clockCard = document.getElementById('clock-card');
+
+      if (!isClockedIn) {
+        // CLOCK IN: Save live ISO timestamp to Supabase
+        const { data, error } = await supabaseClient
+          .from('timesheets')
+          .insert([{
+            user_id: dummyUserId,
+            company_id: dummyCompanyId,
+            clock_in: new Date().toISOString()
+          }])
+          .select()
+          .single();
+
+        if (!error && data) {
+          isClockedIn = true;
+          activeTimesheetId = data.id;
+          statusText.innerText = "STATUS: ON SITE (Tracking Time)";
+          statusText.className = "text-lg font-bold uppercase tracking-wider text-emerald-600";
+          clockCard.className = "bg-emerald-50 rounded-xl shadow-md p-6 border-l-8 border-emerald-500 transition-all";
+          clockBtn.className = "w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white font-bold px-8 py-4 rounded-lg shadow transition duration-200 flex items-center justify-center gap-2 text-lg";
+          btnIcon.innerText = "⏹";
+          btnText.innerText = "CLOCK OFF";
+        } else {
+          alert('Error clocking in: Please verify your Supabase API keys.');
+        }
+      } else {
+        // CLOCK OUT: Update existing timesheet row
+        if (activeTimesheetId) {
+          await supabaseClient
+            .from('timesheets')
+            .update({ clock_out: new Date().toISOString() })
+            .eq('id', activeTimesheetId);
+        }
+        isClockedIn = false;
+        activeTimesheetId = null;
+        statusText.innerText = "STATUS: OFF DUTY";
+        statusText.className = "text-lg font-bold uppercase tracking-wider text-slate-700";
+        clockCard.className = "bg-white rounded-xl shadow-md p-6 border-l-8 border-slate-400 transition-all";
+        clockBtn.className = "w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-8 py-4 rounded-lg shadow transition duration-200 flex items-center justify-center gap-2 text-lg";
+        btnIcon.innerText = "▶";
+        btnText.innerText = "CLOCK ON";
+      }
+    }
+
+    // 3. Pull Real-Time Job Sheets Feed
+    async function loadJobs() {
+      const jobsContainer = document.getElementById('jobs-list');
+      const { data: jobs, error } = await supabaseClient
+        .from('jobs')
+        .select('*')
+        .order('scheduled_date', { ascending: true });
+
+      if (error || !jobs || jobs.length === 0) {
+        jobsContainer.innerHTML = '<div class="bg-white p-6 rounded-xl shadow text-center text-slate-500 font-medium">No job sheets scheduled for today.</div>';
+        return;
+      }
+
+      // Render Job Sheets with Client Name, Address, and Phone Number
+      jobsContainer.innerHTML = jobs.map(job => `
+        <div class="bg-white p-5 rounded-xl shadow border border-slate-200 hover:border-amber-400 transition duration-150 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold uppercase px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">${job.status || 'Pending'}</span>
+              <h3 class="font-bold text-lg text-slate-900">${job.client_name || 'Unknown Client'}</h3>
+            </div>
+            <p class="text-sm text-slate-600 flex items-center gap-1.5 pt-1">
+              <span>📍</span> <span class="font-medium">${job.address || 'No address provided'}</span>
+            </p>
+            <p class="text-sm text-slate-600 flex items-center gap-1.5">
+              <span>📞</span> <a href="tel:${job.phone_number}" class="text-blue-600 font-medium hover:underline">${job.phone_number || 'No phone provided'}</a>
+            </p>
+          </div>
+          <button class="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold px-4 py-2.5 rounded-lg border border-slate-300 transition">
+            View Job & Upload Photo 📷
+          </button>
+        </div>
+      `).join('');
+    }
+
+    // Load jobs automatically when web app boots up
+    loadJobs();
+  </script>
+</body>
+</html>
